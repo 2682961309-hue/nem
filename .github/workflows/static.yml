@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>暖心提示墙（流畅慢速版）</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            min-height: 100vh;
+            background-color: #f5f5f5;
+            font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+            overflow: hidden;
+        }
+        .warm-tip {
+            position: absolute;
+            width: 220px;
+            height: 56px;
+            border: none;
+            border-radius: 8px;
+            background-color: #fff;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            z-index: 999;
+            cursor: move;
+            overflow: hidden;
+            transition: transform 0.2s;
+            /* 新增渐入动画，视觉更流畅 */
+            opacity: 0;
+            transform: translateY(10px);
+            animation: fadeIn 0.3s ease forwards;
+        }
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .warm-tip:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+        }
+        .warm-tip-text {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            text-align: center;
+            padding: 0 12px;
+            color: #333;
+        }
+        @media (max-width: 768px) {
+            .warm-tip {
+                width: 180px;
+                height: 50px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <script>
+        const state = {
+            tipElements: [],
+            minBatchSize: 1,     // 每批最少1个
+            maxBatchSize: 4,     // 每批最多4个（减少单次DOM创建量，更流畅）
+            baseInterval: 350,   // 基础间隔从250ms增至350ms，速度更慢
+            minRandomInterval: 0, // 随机间隔范围：0ms
+            maxRandomInterval: 150, // 随机间隔范围：150ms（每批间隔350-500ms）
+            popupTimer: null,
+            isCreating: false    // 防止并发创建，优化流畅度
+        };
+
+        // 暖心提示语（已移除“我想你了~”）
+        const tips = [
+            "多喝水哦~", "保持微笑呀", "每天都要元气满满",
+            "记得吃水果", "保持好心情", "好好爱自己",
+            "梦想成真", "期待下一次见面", "金榜题名",
+            "顺顺利利", "早点休息", "愿所有烦恼都消失",
+            "别熬夜", "今天过得开心嘛", "天冷了，多穿衣服",
+            "工作再忙也要记得放松~", "今天的你也超棒的！",
+            "偶尔放空一下，给心灵放个假", "累了就停下歇歇，充电再出发",
+            "多看看窗外，阳光和微风都很温柔", "每一个小进步都值得庆祝",
+            "好好吃饭，照顾好自己的胃", "和喜欢的人聊聊天，快乐会加倍",
+            "别太较真，生活偶尔需要“差不多”", "今天也要做个闪闪发光的人",
+            "烦恼会过去，美好会到来", "你的笑容比今天的天气更灿烂",
+            "把今天的不开心都丢进风里吧", "再坚持一下，你离目标又近了一步",
+            "记得给生活加点甜，比如一块小蛋糕", "你值得被温柔对待",
+            "放慢脚步，看看身边的小美好", "今天的晚风一定很舒服",
+            "不管怎样，都要好好爱自己呀", "小小的努力，会有大大的回报",
+            "别焦虑，一切都在往好的方向发展", "偶尔犯点小错也没关系，成长就是试错",
+            "多和朋友联系，想念就说出来", "今天也要记得好好护肤哦",
+            "泡一杯热饮，暖手也暖心", "哪怕只是散步，也能收获好心情",
+            "你其实比自己想象的更强大", "生活虽忙，也要留一点时间给热爱"
+        ];
+
+        const bgColors = [
+            "#ffe4e1", "#fff0f5", "#fce4ec", "#e8f5e9",
+            "#e3f2fd", "#e0f7fa", "#fff8e1", "#fff3e0"
+        ];
+
+        // 获取屏幕可视范围，确保弹窗不超界
+        function getViewportBounds() {
+            return {
+                width: window.innerWidth,
+                height: window.innerHeight
+            };
+        }
+
+        // 优化DOM创建：复用文本节点逻辑，减少性能消耗
+        function createWarmTip() {
+            // 1. 创建弹窗容器（简化DOM操作）
+            const tip = document.createElement("div");
+            tip.className = "warm-tip";
+            state.tipElements.push(tip);
+
+            // 2. 随机文案和背景色（减少重复计算）
+            const randomTipIdx = Math.floor(Math.random() * tips.length);
+            const randomBgIdx = Math.floor(Math.random() * bgColors.length);
+            
+            // 3. 创建文本容器（一次性设置样式和内容）
+            const text = document.createElement("div");
+            text.className = "warm-tip-text";
+            text.textContent = tips[randomTipIdx];
+            text.style.backgroundColor = bgColors[randomBgIdx];
+            tip.appendChild(text);
+
+            // 4. 计算随机位置（避免重复获取视口信息）
+            const viewport = getViewportBounds();
+            const tipWidth = 220; // 固定宽度，避免offsetWidth重绘
+            const tipHeight = 56; // 固定高度，提升性能
+            const x = Math.max(0, Math.random() * (viewport.width - tipWidth));
+            const y = Math.max(0, Math.random() * (viewport.height - tipHeight));
+            tip.style.left = `${x}px`;
+            tip.style.top = `${y}px`;
+
+            // 5. 批量添加到文档（减少DOM回流，更流畅）
+            document.body.appendChild(tip);
+
+            // 拖拽功能（保持不变）
+            let isDragging = false;
+            let offsetX, offsetY;
+            tip.addEventListener("mousedown", (e) => {
+                isDragging = true;
+                offsetX = e.clientX - tip.getBoundingClientRect().left;
+                offsetY = e.clientY - tip.getBoundingClientRect().top;
+                tip.style.zIndex = 1000;
+                e.preventDefault();
+            });
+            document.addEventListener("mousemove", (e) => {
+                if (!isDragging) return;
+                const viewport = getViewportBounds();
+                const newX = Math.max(0, Math.min(e.clientX - offsetX, viewport.width - tipWidth));
+                const newY = Math.max(0, Math.min(e.clientY - offsetY, viewport.height - tipHeight));
+                tip.style.left = `${newX}px`;
+                tip.style.top = `${newY}px`;
+            });
+            document.addEventListener("mouseup", () => {
+                isDragging = false;
+            });
+        }
+
+        // 优化批量创建：分散DOM操作，避免卡顿
+        function createRandomBatch() {
+            if (state.isCreating) return; // 防止并发创建，保护性能
+            state.isCreating = true;
+
+            // 1. 生成当前批次的随机数量（减少单次创建量）
+            const currentBatchSize = Math.floor(Math.random() * (state.maxBatchSize - state.minBatchSize + 1)) + state.minBatchSize;
+            
+            // 2. 分散创建弹窗（每10ms创建1个，避免一次性DOM压力）
+            let created = 0;
+            const createTimer = setInterval(() => {
+                createWarmTip();
+                created++;
+                if (created >= currentBatchSize) {
+                    clearInterval(createTimer);
+                    state.isCreating = false; // 释放创建锁
+                }
+            }, 10);
+        }
+
+        // 优化无限弹窗：随机间隔，避免机械节奏，更流畅
+        function startInfiniteSmoothPopup() {
+            // 立即生成第一批
+            createRandomBatch();
+
+            // 后续批次：基础间隔+随机偏移（350-500ms），节奏更自然
+            function scheduleNextBatch() {
+                const randomOffset = Math.floor(Math.random() * (state.maxRandomInterval - state.minRandomInterval + 1)) + state.minRandomInterval;
+                const nextInterval = state.baseInterval + randomOffset;
+                
+                state.popupTimer = setTimeout(() => {
+                    createRandomBatch();
+                    scheduleNextBatch(); // 递归调度下一批，避免setInterval累积误差
+                }, nextInterval);
+            }
+
+            scheduleNextBatch();
+        }
+
+        // 窗口缩放优化：防抖处理，减少频繁计算
+        let resizeTimer = null;
+        window.addEventListener("resize", () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                const viewport = getViewportBounds();
+                const tipWidth = 220;
+                const tipHeight = 56;
+                // 批量调整弹窗位置，减少DOM操作次数
+                state.tipElements.forEach(tip => {
+                    let x = parseInt(tip.style.left);
+                    let y = parseInt(tip.style.top);
+                    // 限制在新视口范围内
+                    x = Math.max(0, Math.min(x, viewport.width - tipWidth));
+                    y = Math.max(0, Math.min(y, viewport.height - tipHeight));
+                    tip.style.left = `${x}px`;
+                    tip.style.top = `${y}px`;
+                });
+            }, 100); // 100ms防抖，避免窗口拖动时频繁触发
+        });
+
+        // 页面加载后启动流畅弹窗
+        window.addEventListener("load", startInfiniteSmoothPopup);
+    </script>
+</body>
+</html>
